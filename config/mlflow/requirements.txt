@@ -1,0 +1,5 @@
+cryptography
+mlflow
+pymysql
+google-cloud-storage
+google-cloud
