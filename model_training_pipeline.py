@@ -5,9 +5,12 @@ import mlflow
 import optuna
 import numpy as np
 import pandas as pd
-import logging
+
+from dateutil.relativedelta import relativedelta
+from datetime import datetime
 from prefect import task, flow, get_run_logger
 from prefect.context import get_run_context
+
 from math import radians, sin, cos, acos, pi, atan2, sqrt
 from sklearn.feature_extraction import DictVectorizer
 
@@ -20,8 +23,6 @@ from optuna.samplers import TPESampler
 HPO_EXPERIMENT_NAME = "random-forest-hyperopt"
 EXPERIMENT_NAME = "random-forest-best-models"
 RF_PARAMS = ['max_depth', 'n_estimators', 'min_samples_split', 'min_samples_leaf', 'random_state', 'n_jobs']
-# BOOl_PARAMS = ['bootstrap',  'oob_score', 'warm_start']
-# FLOAT_PARAMS = ['ccp_alpha','max_features', 'min_impurity_decrease', 'min_weight_fraction_leaf', 'verbose']
 
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
 mlflow.set_experiment(EXPERIMENT_NAME)
@@ -48,6 +49,7 @@ def load_pickle(filename: str):
     with open(filename, "rb") as f_in:
         return pickle.load(f_in)
 
+@task(retries=2)
 def read_dataframe(filename: str):
     """Reading data into a dataframe
     and cleaning the data"""
@@ -86,18 +88,8 @@ def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):
     return X, dv
 
 @task(retries=2, name="read and clean data and create dicts")
-def run_data_prep(raw_data_path: str, dest_path: str, dataset: str = "JC"):
-    # Load csv files
-    df_train = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}-202304-citibike-tripdata.csv")
-    )
-    df_val = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}-202305-citibike-tripdata.csv")
-    )
-    df_test = read_dataframe(
-        os.path.join(raw_data_path, f"{dataset}-202306-citibike-tripdata.csv")
-    )
-
+def run_data_prep(df_train, df_val, df_test):
+    
     # Extract the target
     target = 'duration'
     y_train = df_train[target].values
@@ -110,21 +102,19 @@ def run_data_prep(raw_data_path: str, dest_path: str, dataset: str = "JC"):
     X_val, _ = preprocess(df_val, dv, fit_dv=False)
     X_test, _ = preprocess(df_test, dv, fit_dv=False)
 
+    return(X_train, y_train, X_val, y_val, X_test, y_test)
     # Create dest_path folder unless it already exists
-    os.makedirs(dest_path, exist_ok=True)
+    # os.makedirs(dest_path, exist_ok=True)
 
-    # Save DictVectorizer and datasets
-    logging.info(f"Saving pickle in {dest_path}")
-    dump_pickle(dv, os.path.join(dest_path, "dv.pkl"))
-    dump_pickle((X_train, y_train), os.path.join(dest_path, "train.pkl"))
-    dump_pickle((X_val, y_val), os.path.join(dest_path, "val.pkl"))
-    dump_pickle((X_test, y_test), os.path.join(dest_path, "test.pkl"))
+    # # Save DictVectorizer and datasets
+    # logging.info(f"Saving pickle in {dest_path}")
+    # dump_pickle(dv, os.path.join(dest_path, "dv.pkl"))
+    # dump_pickle((X_train, y_train), os.path.join(dest_path, "train.pkl"))
+    # dump_pickle((X_val, y_val), os.path.join(dest_path, "val.pkl"))
+    # dump_pickle((X_test, y_test), os.path.join(dest_path, "test.pkl"))
 
 @task(retries=1, name="run optimization")
-def run_optimization(data_path: str = "./output", num_trials: int = 10, experiment_name: str = HPO_EXPERIMENT_NAME):
-
-    X_train, y_train = load_pickle(os.path.join(data_path, "train.pkl"))
-    X_val, y_val = load_pickle(os.path.join(data_path, "val.pkl"))
+def run_optimization(X_train, y_train, X_val, y_val, num_trials: int = 10, experiment_name: str = HPO_EXPERIMENT_NAME):
 
     mlflow.set_experiment(experiment_name)
 
@@ -156,34 +146,28 @@ def run_optimization(data_path: str = "./output", num_trials: int = 10, experime
     study = optuna.create_study(direction="minimize", sampler=sampler)
     study.optimize(objective, n_trials=num_trials)
 
-def train_and_log_model(data_path, params, experiment_name: str=EXPERIMENT_NAME):
-    X_train, y_train = load_pickle(os.path.join(data_path, "train.pkl"))
-    X_val, y_val = load_pickle(os.path.join(data_path, "val.pkl"))
-    X_test, y_test = load_pickle(os.path.join(data_path, "test.pkl"))
+def train_and_log_model(X_train, y_train, X_test, y_test, params, experiment_name: str):
     RF_PARAMS = ['max_depth', 'n_estimators', 'min_samples_split', 'min_samples_leaf', 'random_state', 'n_jobs']
     mlflow.set_experiment(experiment_name)
     with mlflow.start_run():
-        
-        new_params = {}
-        # print(params)
+
+        required_params = {}
         for param in RF_PARAMS:
-            new_params[param] = int(params[param])
-        # print(new_params)
-        rf = RandomForestRegressor(**new_params)
+            required_params[param] = int(params[param])
+        
+        rf = RandomForestRegressor(**required_params)
         rf.fit(X_train, y_train)
 
-        # Evaluate model on the validation and test sets
-        val_rmse = mean_squared_error(y_val, rf.predict(X_val), squared=False)
-        mlflow.log_metric("val_rmse", val_rmse)
+        # Evaluate model on the test set
         test_rmse = mean_squared_error(y_test, rf.predict(X_test), squared=False)
         mlflow.log_metric("test_rmse", test_rmse)
 
 @task(retries=2, name="run and register model")
-def run_register_model(data_path: str = "./output", top_n: int = 5):
+def run_register_model(X_train, y_train, X_test, y_test, logger, top_n: int = 5):
 
     client = MlflowClient()
 
-    logging.info(f"Retrieving the top {top_n} models for {HPO_EXPERIMENT_NAME}")
+    logger.info(f"Retrieving the top {top_n} models for {HPO_EXPERIMENT_NAME}")
     # Retrieve the top_n model runs and log the models
     experiment = client.get_experiment_by_name(HPO_EXPERIMENT_NAME)
     runs = client.search_runs(
@@ -192,23 +176,9 @@ def run_register_model(data_path: str = "./output", top_n: int = 5):
         max_results=top_n,
         order_by=["metrics.rmse ASC"]
     )
-
     
     for run in runs:
-        
-
-        
-        # run.data.params["bootstrap"] = np.bool_(True)
-        # run.data.params["ccp_alpha"] = 0
-        # run.data.params["max_features"] = 1
-        # run.data.params["max_leaf_nodes"] = None
-        # run.data.params["max_samples"] = None
-        # run.data.params["min_impurity_decrease"] = 0
-        # run.data.params["min_weight_fraction_leaf"] = 0
-        # run.data.params["oob_score"] = np.bool_(False)
-        # run.data.params["verbose"] = 0
-        # run.data.params["warm_start"] = np.bool_(False)
-        train_and_log_model(data_path=data_path, params=run.data.params, experiment_name = EXPERIMENT_NAME)
+        train_and_log_model(X_train, y_train, X_test, y_test, params=run.data.params, experiment_name = EXPERIMENT_NAME)
 
     # Select the model with the lowest test RMSE
     experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
@@ -220,19 +190,59 @@ def run_register_model(data_path: str = "./output", top_n: int = 5):
 
     # Register the best model
     best_run_id = best_run.info.run_id
-    mlflow.register_model(model_uri=f"runs:/{best_run_id}/model", name="MidnightRandomForestWanderingRegressor")
+    mlflow.register_model(model_uri=f"runs:/{best_run_id}/model", name="RandomForestRegressorStage")
+
+@task
+def generate_file_names(run_date: datetime.date):
+    file_prefix = "JC-"
+    file_suffix = "-citibike-tripdata.csv"
+
+    train_date = run_date - relativedelta(months=3)
+    val_date = run_date - relativedelta(months=2)
+    test_date = run_date - relativedelta(months=1)
+
+    train_filename = f"{file_prefix}{train_date.year:04d}{train_date.month:02d}{file_suffix}"
+    val_filename = f"{file_prefix}{val_date.year:04d}{val_date.month:02d}{file_suffix}"
+    test_filename = f"{file_prefix}{test_date.year:04d}{test_date.month:02d}{file_suffix}"
+    
+    return(train_filename, val_filename, test_filename)
+
+
+@task
+def generate_file_path(file_name: str, raw_data_path: str ="./data/"):
+    return(f"{raw_data_path}{file_name}")
 
 @flow(name="main flow") 
-def run_train():
-    logging.info("Reading and cleaning data...")
-    # run_data_prep(raw_data_path="./data", dest_path="./output")
+def model_training(run_date):
+    logger = get_run_logger()
+    logger.info("Generating file names...")
+    train_file, val_file, test_file = generate_file_names(run_date)
 
-    logging.info("Running parameter optimization using Random Forest Regressor...")
-    # run_optimization(data_path="./output", num_trials=6, experiment_name=HPO_EXPERIMENT_NAME)
+    logger.info("Generating file paths...")
+    train_file_path = generate_file_path(file_name = train_file, raw_data_path="./data/")
+    val_file_path = generate_file_path(file_name = val_file, raw_data_path="./data/")
+    test_file_path = generate_file_path(file_name = test_file, raw_data_path="./data/")
+    
+    logger.info("Reading dataframe...")
+    df_train = read_dataframe(train_file_path)
+    df_val = read_dataframe(val_file_path)
+    df_test = read_dataframe(test_file_path)
 
-    logging.info("Registering model with best params...")
-    run_register_model(data_path="./output", top_n=1)
+    logger.info("Running data prep...")
+    X_train, y_train, X_val, y_val, X_test, y_test = run_data_prep(df_train, df_val, df_test)
 
+    logger.info("Running parameter optimization using Random Forest Regressor...")
+    run_optimization(X_train, y_train, X_val, y_val, num_trials=10, experiment_name=HPO_EXPERIMENT_NAME)
+
+    logger.info("Registering model with best params...")
+    run_register_model(X_train, y_train, X_test, y_test, logger, top_n=5)
+
+def run():
+    # year = int(sys.argv[2]) #2022
+    # month = int(sys.argv[3]) #2
+    run_date = datetime.today()
+    model_training(run_date)
+    
 
 if __name__ == '__main__':
-    run_train()
+    run()
