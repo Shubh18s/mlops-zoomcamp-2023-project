@@ -3,9 +3,13 @@ import zipfile
 import requests
 import shutil
 
-files = [('JC-202304-citibike-tripdata.csv.zip', './data'),
-        ('JC-202305-citibike-tripdata.csv.zip', './data'),
-        ('JC-202306-citibike-tripdata.csv.zip', './data')]
+training_path = "./model_training/data"
+deployment_path = "./model_deployment/data"
+
+files = [('JC-202303-citibike-tripdata.csv.zip', training_path),
+        ('JC-202304-citibike-tripdata.csv.zip', training_path),
+        ('JC-202305-citibike-tripdata.csv.zip', training_path),
+        ('JC-202306-citibike-tripdata.csv.zip', deployment_path)]
 
 print("Downloading files...")
 for (file, path) in files:
@@ -16,5 +20,5 @@ for (file, path) in files:
     with zipfile.ZipFile(zip_path, "r") as f:
         f.extractall(save_path)
     print(f"{file} successfully downloaded in {save_path}")
-shutil.rmtree(f"{save_path}/__MACOSX")
+
 print("Download successfull.")
