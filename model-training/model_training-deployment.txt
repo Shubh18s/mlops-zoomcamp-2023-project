@@ -1,0 +1,56 @@
+###
+### A complete description of a Prefect Deployment for flow 'citibike model training'
+###
+name: citibike-model-training
+description: null
+version: 8eb4582c77d1be01e41e6315d280efe6
+# The work queue that will handle this deployment's runs
+work_queue_name: citibike-training-work-queue
+work_pool_name: citibike-training-work-pool
+tags: []
+parameters: {}
+schedule: null
+is_schedule_active: true
+infra_overrides: {}
+
+###
+### DO NOT EDIT BELOW THIS LINE
+###
+flow_name: citibike model training
+manifest_path: null
+infrastructure:
+  type: process
+  env: {}
+  labels: {}
+  name: null
+  command: null
+  stream_output: true
+  working_dir: null
+  _block_document_id: 8badb0db-753f-43de-92ab-13fc4943c706
+  _block_document_name: anonymous-5e7fdfe2-ef4e-45b4-ba88-b399e7db10b8
+  _is_anonymous: true
+  block_type_slug: process
+  _block_type_slug: process
+storage:
+  bucket: citibike-training-prefect-flows
+  gcp_credentials:
+    service_account_file: null
+    service_account_info: null
+    project: psychic-surf-390106
+    block_type_slug: gcp-credentials
+  bucket_folder: ''
+  _block_document_id: f2a2420c-9578-43a2-894b-2f58165c1d7b
+  _block_document_name: citibike-training-prefect-flows
+  _is_anonymous: false
+  block_type_slug: gcs-bucket
+  _block_type_slug: gcs-bucket
+path: model-training
+entrypoint: model_training_pipeline.py:model_training
+parameter_openapi_schema:
+  title: Parameters
+  type: object
+  properties: {}
+  required: null
+  definitions: null
+timestamp: '2023-07-29T06:18:41.214174+00:00'
+triggers: []

@@ -1,0 +1,41 @@
+# Welcome to your prefect.yaml file! You can you this file for storing and managing
+# configuration for deploying your flows. We recommend committing this file to source
+# control along with your flow code.
+
+# Generic metadata about this project
+name: model-training
+prefect-version: 2.11.0
+
+# build section allows you to manage and build docker images
+build: null
+
+# push section allows you to manage if and how this project is uploaded to remote locations
+push:
+- prefect_gcp.deployment.steps.push_to_gcs:
+    id: push_code
+    requires: prefect-gcp>=0.4.3
+    bucket: citibike-training-prefect-flows
+    folder: model-training
+
+# pull section allows you to provide instructions for cloning this project in remote locations
+pull:
+- prefect_gcp.deployment.steps.pull_from_gcs:
+    id: pull_code
+    requires: prefect-gcp>=0.4.3
+    bucket: '{{ push_code.bucket }}'
+    folder: '{{ pull_code.folder }}'
+
+# the deployments section allows you to provide configuration for deploying flows
+deployments:
+- name: null
+  version: null
+  tags: []
+  description: null
+  schedule: {}
+  flow_name: null
+  entrypoint: null
+  parameters: {}
+  work_pool:
+    name: null
+    work_queue_name: null
+    job_variables: {}
