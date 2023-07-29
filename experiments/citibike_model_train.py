@@ -193,7 +193,21 @@ def run_register_model(data_path: str = "./output", top_n: int = 5):
         order_by=["metrics.rmse ASC"]
     )
 
+    
     for run in runs:
+        
+
+        
+        # run.data.params["bootstrap"] = np.bool_(True)
+        # run.data.params["ccp_alpha"] = 0
+        # run.data.params["max_features"] = 1
+        # run.data.params["max_leaf_nodes"] = None
+        # run.data.params["max_samples"] = None
+        # run.data.params["min_impurity_decrease"] = 0
+        # run.data.params["min_weight_fraction_leaf"] = 0
+        # run.data.params["oob_score"] = np.bool_(False)
+        # run.data.params["verbose"] = 0
+        # run.data.params["warm_start"] = np.bool_(False)
         train_and_log_model(data_path=data_path, params=run.data.params, experiment_name = EXPERIMENT_NAME)
 
     # Select the model with the lowest test RMSE
@@ -203,27 +217,10 @@ def run_register_model(data_path: str = "./output", top_n: int = 5):
         run_view_type=ViewType.ACTIVE_ONLY,
         max_results=top_n,
         order_by=["metrics.test_rmse ASC"])[0]
-    
+
     # Register the best model
     best_run_id = best_run.info.run_id
     mlflow.register_model(model_uri=f"runs:/{best_run_id}/model", name="MidnightRandomForestWanderingRegressor")
-
-    markdown__rmse_report = f"""# RMSE Report
-
-        ## Summary
-
-        Duration Prediction 
-
-        ## RMSE XGBoost Model
-
-        | Region    | RMSE |
-        |:----------|-------:|
-        | {date.today()} | {best_run.metrics.test_rmse:.2f} |
-        """
-
-    create_markdown_artifact(
-        key="citibike-prod-model-report", markdown=markdown__rmse_report
-    )
 
 @flow(name="main flow") 
 def run_train():
