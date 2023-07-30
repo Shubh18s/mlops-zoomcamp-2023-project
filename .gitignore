@@ -18,6 +18,7 @@ venv
 Pipfile.lock
 *.bin
 *.db
+*.b
 
 __pycache__/
 **.env

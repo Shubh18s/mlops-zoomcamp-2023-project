@@ -7,7 +7,7 @@ echo "Creating work-pool $WORK_POOL_NAME ..."
 pipenv run prefect work-pool create $WORK_POOL_NAME --type process
 
 echo "Creating work queue $TRAINING_WORK_QUEUE for $WORK_POOL_NAME ..."
-pipenv run prefect work-queue create "citibike-work-queue" --pool $WORK_POOL_NAME
+pipenv run prefect work-queue create $TRAINING_WORK_QUEUE --pool $WORK_POOL_NAME
 
 echo "Starting agent for $WORK_POOL_NAME ..."
 pipenv run prefect agent start --pool $WORK_POOL_NAME --work-queue $TRAINING_WORK_QUEUE
