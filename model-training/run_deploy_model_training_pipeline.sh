@@ -8,3 +8,6 @@ pipenv run python create_gcs_bucket_block.py
 echo "Building model training deployment..."
 # pipenv run prefect deployment build model_training_pipeline.py:model_training -n citibike-model-training --storage-block gcs-bucket/citibike-training-prefect-flows/model-training
 pipenv run python prefect_model_training_deployment.py
+
+echo "Building model monitoring deployment..."
+pipenv run python prefect_model_monitoring_deployment.py

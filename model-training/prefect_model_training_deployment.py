@@ -1,5 +1,6 @@
 import model_training_pipeline
 from prefect.deployments import Deployment
+from prefect.orion.schemas.schedules import CronSchedule
 from prefect.filesystems import GCS
 from prefect_gcp import GcsBucket
 
@@ -16,6 +17,7 @@ deployment = Deployment.build_from_flow(
     work_queue_name=TRAINING_WORK_QUEUE,
     work_pool_name=WORK_POOL_NAME,
     storage=storage,
+    schedule=(CronSchedule(cron="0 12 15 * *", timezone="Australia/Melbourne"))
     # infra_overrides={
     #     "env": {
     #         "ENV_VAR": "value"

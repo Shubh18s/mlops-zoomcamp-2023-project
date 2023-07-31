@@ -19,6 +19,7 @@ google-cloud = "*"
 google-cloud-storage = "*"
 prefect-gcp = "*"
 gcsfs = "*"
+pytest = "*"
 
 [dev-packages]
 ipykernel = "*"

@@ -17,6 +17,10 @@ from sklearn.feature_extraction import DictVectorizer
 from mlflow.entities import ViewType
 from mlflow.tracking import MlflowClient
 
+from evidently import ColumnMapping
+from evidently.report import Report
+from evidently.metrics import ColumnDriftMetric, DatasetDriftMetric, DatasetMissingValuesMetric
+
 MODEL_NAME="sklearn-random-forest-reg-model"
 MODEL_STAGE="Production"
 
@@ -39,33 +43,23 @@ def read_dataframe(filename: str):
     df['hour_of_day'] = df.started_at.dt.hour
     df['day_of_week'] = df.started_at.dt.day_of_week
 
+    df['start_stop'] = df['start_station_id'] + '_' + df['end_station_id']
     df = df[(df.duration >= 1) & (df.duration <= 20) ].copy() #& (df.hour_of_day >= 5)
 
     return df
 
 @task
-def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):
-    categorical = ['start_station_id', 'end_station_id', 'rideable_type', 'hour_of_day', 'day_of_week', 'start_lat', 'start_lng', 'end_lat', 'end_lng', 'member_casual']
-    numerical = ['distance']
-    df[categorical] = df[categorical].astype(str)
-    df['start_stop'] = df['start_station_id'] + '_' + df['end_station_id']
-    categorical = ['start_stop', 'rideable_type', 'hour_of_day', 'day_of_week', 'member_casual']
-    numerical = ['distance']
-
-    dicts = df[categorical + numerical].to_dict(orient='records')
+def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):   
+    categorical_features = ['start_stop', 'rideable_type', 'hour_of_day', 'day_of_week', 'member_casual']
+    numerical_features = ['distance']
+    df[categorical_features] = df[categorical_features].astype(str)
+    dicts = df[categorical_features + numerical_features].to_dict(orient='records')
 
     if fit_dv:
         X = dv.fit_transform(dicts)
     else:
         X = dv.transform(dicts)
     return X, dv
-
-@task
-def generate_file_names(score_date: datetime.date):
-    file_prefix = "JC-"
-    file_suffix = "-citibike-tripdata.csv"
-    score_filename = f"{file_prefix}{score_date.year:04d}{score_date.month:02d}{file_suffix}"
-    return(score_filename)
 
 @task
 def load_preprocessor(client, run_id):
@@ -84,65 +78,104 @@ def load_best_model(client, run_id):
     model = mlflow.pyfunc.load_model(logged_model)
     return model
 
-@task
+@task(retries=2)
+def generate_file_names(run_date: datetime.date):
+    file_prefix = "JC-"
+    file_suffix = "-citibike-tripdata.csv"
+
+    ref_date = run_date - relativedelta(months=4)
+    curr_date = run_date - relativedelta(months=2)
+
+    ref_filename = f"{file_prefix}{ref_date.year:04d}{ref_date.month:02d}{file_suffix}"
+    curr_filename = f"{file_prefix}{curr_date.year:04d}{curr_date.month:02d}{file_suffix}"
+    
+    return(ref_filename, curr_filename)
+
+
+@task(retries=2)
 def generate_file_path(file_name: str, raw_data_path: str ="./data/"):
     return(f"{raw_data_path}{file_name}")
 
 @task
-def save_results(df, y_pred, run_id, output_file):
+def create_results(df, y_pred):
     df_result = pd.DataFrame()
-    df_result['ride_id'] = df['ride_id']
-    df_result['started_at'] = df['started_at']
-    df_result['start_station_id'] = df['start_station_id']
-    df_result['end_station_id'] = df['end_station_id']
+    df_result['start_stop'] = df['start_stop']
     df_result['rideable_type'] = df['rideable_type']
     df_result['hour_of_day'] = df['hour_of_day']
     df_result['day_of_week'] = df['day_of_week']
     df_result['member_casual'] = df['member_casual']
     df_result['actual_duration'] = df['duration']
     df_result['predicted_duration'] = y_pred
-    df_result['duration_deviation'] = df_result['actual_duration'] - df_result['predicted_duration']
-    df_result['model_version'] = run_id
 
-    df_result.to_csv(output_file, index=False)
-    return output_file
+    return df_result
 
-@flow(name="citibike data scoring") 
-def apply_model(run_date: datetime = None):
+@flow(name="citibike model monitoring") 
+def model_monitoring(run_date: datetime = None):
     TRACKING_URI="http://127.0.0.1:5000"
     client = MlflowClient(tracking_uri=TRACKING_URI)
 
     logger = get_run_logger()
-    run_date = datetime.today()
-    score_date = run_date - relativedelta(months=1)
-    
-    logger.info("Generating file names...")
-    input_file = generate_file_names(score_date)
+    if run_date is None:
+        ctx = get_run_context()
+        run_date = ctx.flow_run.expected_start_time
+
+    logger.info("Generating reference and current data file names...")
+    ref_file, curr_file = generate_file_names(run_date)
 
     logger.info("Generating file paths...")
-    input_file_path = generate_file_path(file_name = input_file, raw_data_path="./data/")
-    output_file = f'gs://citibike-deployment-scoring-artifacts/output/{score_date.year:04d}-{score_date.month:02d}.csv'
+    ref_file_path = generate_file_path(file_name = ref_file, raw_data_path="./data/")
+    curr_file_path = generate_file_path(file_name = curr_file, raw_data_path="./data/")
+    
+    logger.info("Reading dataframe...")
+    df_ref = read_dataframe(ref_file_path)
+    df_curr = read_dataframe(curr_file_path)
     
     run_id = fetch_best_model_run.get_prod_model_run_id(client, MODEL_NAME, MODEL_STAGE)
     logger.info(f'Loading the best model with RUN_ID={run_id}...')
     model = load_best_model(client, run_id)
     preprocessor = load_preprocessor(client, run_id)
 
-    logger.info("Preparing score data ...")
-    df_score = read_dataframe(input_file_path)
-    dicts, _ = preprocess(df_score, preprocessor, False)
+    logger.info("Preparing data ...")
+    # Extract the target
+    target = 'duration'
+    y_ref = df_ref[target].values
+    y_curr = df_curr[target].values
 
-    logger.info(f'applying the model..')
-    y_pred = model.predict(dicts)
-    
-    logger.info(f'saving the result to {output_file}..')
-    save_results(df_score, y_pred, run_id, output_file)
-    return output_file
+    ref_dicts, _ = preprocess(df_ref, preprocessor, False)
+    curr_dicts, _ = preprocess(df_curr, preprocessor, False)
 
-def run():
-    # run_date = datetime.today()
-    apply_model()
-    
+    logger.info(f'Applying the model..')
+    ref_pred = model.predict(ref_dicts)
+    curr_pred = model.predict(curr_dicts)
+    ref_data = create_results(df_ref, ref_pred)
+    curr_data = create_results(df_curr, curr_pred)
+    cat_features = ['rideable_type', 'hour_of_day', 'day_of_week', 'member_casual']
+    num_features = ['distance']
+    column_mapping = ColumnMapping(
+        target=None,
+        prediction='predicted_duration',
+        task = 'regression',
+        numerical_features=num_features,
+        categorical_features=cat_features
+    )
+
+    report = Report(metrics=[
+        ColumnDriftMetric(column_name='predicted_duration'),
+        DatasetDriftMetric()
+        ]
+    )
+    logger.info(f'Running evidently report..')
+    report.run(reference_data=ref_data, current_data=curr_data, column_mapping=column_mapping)
+    result = report.as_dict()
+
+    #prediction drift
+    print(f"Prediction drift: {result['metrics'][0]['result']['drift_score']}")
+    #number of drifted columns
+    print(f"Number of drifted columns: {result['metrics'][1]['result']['number_of_drifted_columns']}")
+   
 
 if __name__ == '__main__':
-    run()
+    """Needs datetime string as the first parameter"""
+    run_date = pd.to_datetime(sys.argv[1])
+    # print(run_date)
+    model_monitoring(run_date)

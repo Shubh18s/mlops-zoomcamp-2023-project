@@ -19,6 +19,7 @@ profile_default/
 ipython_config.py
 *.ipynb_checkpoints/*
 *.ipynb
+*.sh
 
 # Environments
 .python-version

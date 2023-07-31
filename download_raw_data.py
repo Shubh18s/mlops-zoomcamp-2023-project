@@ -9,6 +9,7 @@ deployment_path = "./model-deployment/data"
 files = [('JC-202303-citibike-tripdata.csv.zip', training_path),
         ('JC-202304-citibike-tripdata.csv.zip', training_path),
         ('JC-202305-citibike-tripdata.csv.zip', training_path),
+        ('JC-202306-citibike-tripdata.csv.zip', training_path),
         ('JC-202306-citibike-tripdata.csv.zip', deployment_path)]
 
 print("Downloading files...")

@@ -227,9 +227,11 @@ def generate_file_path(file_name: str, raw_data_path: str ="./data/"):
     return(f"{raw_data_path}{file_name}")
 
 @flow(name="citibike model training pipeline") 
-def model_training():
+def model_training(run_date: datetime = None):
 
-    run_date = datetime.today()
+    if run_date is None:
+        ctx = get_run_context()
+        run_date = ctx.flow_run.expected_start_time
     logger = get_run_logger()
 
     # logger.info("Generating file names...")
@@ -256,11 +258,10 @@ def model_training():
 
     logger.info("Registering model with best params...")
     register_model(train_file, val_file, test_file, run_date, logger, top_n=5)
-
-def run():
-    # run_date = datetime.today()
-    model_training()
     
 
 if __name__ == '__main__':
-    run()
+    """Needs datetime string as the first parameter"""
+    run_date = pd.to_datetime(sys.argv[1])
+    # print(run_date)
+    model_training(run_date)

@@ -1,4 +1,5 @@
 import os
+import sys
 import pickle
 import click
 import mlflow
@@ -26,7 +27,10 @@ def read_dataframe(filename: str):
     """Reading data into a dataframe
     and cleaning the data"""
     df = pd.read_csv(filename)
-    
+    return df
+
+@task(retries=2)
+def prepare_features(df: pd.DataFrame):
     df.dropna(inplace=True)
 
     df['started_at'] = pd.to_datetime(df['started_at'])
@@ -39,18 +43,18 @@ def read_dataframe(filename: str):
     df['hour_of_day'] = df.started_at.dt.hour
     df['day_of_week'] = df.started_at.dt.day_of_week
 
+    df['start_stop'] = df['start_station_id'] + '_' + df['end_station_id']
     df = df[(df.duration >= 1) & (df.duration <= 20) ].copy() #& (df.hour_of_day >= 5)
+    
+    df = df[['ride_id', 'start_stop', 'rideable_type', 'hour_of_day', 'day_of_week', 'member_casual', 'distance', 'duration']]
 
     return df
 
 @task
 def preprocess(df: pd.DataFrame, dv: DictVectorizer, fit_dv: bool = False):
-    categorical = ['start_station_id', 'end_station_id', 'rideable_type', 'hour_of_day', 'day_of_week', 'start_lat', 'start_lng', 'end_lat', 'end_lng', 'member_casual']
-    numerical = ['distance']
-    df[categorical] = df[categorical].astype(str)
-    df['start_stop'] = df['start_station_id'] + '_' + df['end_station_id']
     categorical = ['start_stop', 'rideable_type', 'hour_of_day', 'day_of_week', 'member_casual']
     numerical = ['distance']
+    df[categorical] = df[categorical].astype(str)
 
     dicts = df[categorical + numerical].to_dict(orient='records')
 
@@ -92,9 +96,10 @@ def generate_file_path(file_name: str, raw_data_path: str ="./data/"):
 def save_results(df, y_pred, run_id, output_file):
     df_result = pd.DataFrame()
     df_result['ride_id'] = df['ride_id']
-    df_result['started_at'] = df['started_at']
-    df_result['start_station_id'] = df['start_station_id']
-    df_result['end_station_id'] = df['end_station_id']
+    # df_result['started_at'] = df['started_at']
+    # df_result['start_station_id'] = df['start_station_id']
+    # df_result['end_station_id'] = df['end_station_id']
+    df_result['start_stop'] = df['start_stop']
     df_result['rideable_type'] = df['rideable_type']
     df_result['hour_of_day'] = df['hour_of_day']
     df_result['day_of_week'] = df['day_of_week']
@@ -113,7 +118,11 @@ def apply_model(run_date: datetime = None):
     client = MlflowClient(tracking_uri=TRACKING_URI)
 
     logger = get_run_logger()
-    run_date = datetime.today()
+
+    if run_date is None:
+        ctx = get_run_context()
+        run_date = ctx.flow_run.expected_start_time
+
     score_date = run_date - relativedelta(months=1)
     
     logger.info("Generating file names...")
@@ -121,28 +130,29 @@ def apply_model(run_date: datetime = None):
 
     logger.info("Generating file paths...")
     input_file_path = generate_file_path(file_name = input_file, raw_data_path="./data/")
-    output_file = f'gs://citibike-deployment-scoring-artifacts/output/{score_date.year:04d}-{score_date.month:02d}.csv'
+    output_file_path = f'gs://citibike-deployment-scoring-artifacts/output/{score_date.year:04d}-{score_date.month:02d}.csv'
     
     run_id = fetch_best_model_run.get_prod_model_run_id(client, MODEL_NAME, MODEL_STAGE)
     logger.info(f'Loading the best model with RUN_ID={run_id}...')
     model = load_best_model(client, run_id)
     preprocessor = load_preprocessor(client, run_id)
 
+    logger.info("Reading input data ...")
+    df = read_dataframe(input_file_path)
     logger.info("Preparing score data ...")
-    df_score = read_dataframe(input_file_path)
+    df_score = prepare_features(df)
     dicts, _ = preprocess(df_score, preprocessor, False)
 
     logger.info(f'applying the model..')
     y_pred = model.predict(dicts)
     
-    logger.info(f'saving the result to {output_file}..')
-    save_results(df_score, y_pred, run_id, output_file)
-    return output_file
+    logger.info(f'saving the result to {output_file_path}..')
+    save_results(df_score, y_pred, run_id, output_file_path)
+    return output_file_path
 
-def run():
-    # run_date = datetime.today()
-    apply_model()
-    
 
 if __name__ == '__main__':
-    run()
+    """Needs datetime string as the first parameter"""
+    run_date = pd.to_datetime(sys.argv[1])
+    # print(run_date)
+    apply_model(run_date)
