@@ -11,8 +11,9 @@ The project is intended towards predicting the ride durations for NYC citibike r
     "citibike-scoring-prefect-flows"]
 3. Make sure that the vm created in step 1 has access to these buckets
 4. Clone the repository
-5. Open a new terminal and navigate to "model-training" folder and run "pipenv shell" and then run "pipenv install"
-6. Open a new terminal and navigate to "model-deployment" folder and run "pipenv shell" and then run "pipenv install"
+5. Navigate to the project folder and run "python download_raw_data.py".
+6. Open a new terminal and navigate to "model-training" folder and run "pipenv shell" and then run "pipenv install"
+7. Open a new terminal and navigate to "model-deployment" folder and run "pipenv shell" and then run "pipenv install"
 
 ### Running mlflow and prefect server - 
 1. Open a new terminal and navigate to "model-training" folder and run "bash run_mlflow_server.sh"
