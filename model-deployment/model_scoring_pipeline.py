@@ -123,7 +123,7 @@ def apply_model(run_date: datetime = None):
         ctx = get_run_context()
         run_date = ctx.flow_run.expected_start_time
 
-    score_date = run_date - relativedelta(months=1)
+    score_date = run_date - relativedelta(months=2)
     
     logger.info("Generating file names...")
     input_file = generate_file_names(score_date)
