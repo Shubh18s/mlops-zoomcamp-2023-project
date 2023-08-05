@@ -211,9 +211,9 @@ def generate_file_names(run_date: datetime.date):
     file_prefix = "JC-"
     file_suffix = "-citibike-tripdata.csv"
 
-    train_date = run_date - relativedelta(months=4)
-    val_date = run_date - relativedelta(months=3)
-    test_date = run_date - relativedelta(months=2)
+    train_date = run_date - relativedelta(months=5)
+    val_date = run_date - relativedelta(months=4)
+    test_date = run_date - relativedelta(months=3)
 
     train_filename = f"{file_prefix}{train_date.year:04d}{train_date.month:02d}{file_suffix}"
     val_filename = f"{file_prefix}{val_date.year:04d}{val_date.month:02d}{file_suffix}"
