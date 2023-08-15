@@ -17,6 +17,7 @@ optuna = "*"
 pymysql = "*"
 google-cloud = "*"
 google-cloud-storage = "*"
+pre-commit = "*"
 
 [dev-packages]
 ipykernel = "*"
