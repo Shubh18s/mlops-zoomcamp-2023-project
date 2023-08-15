@@ -18,6 +18,7 @@ pymysql = "*"
 google-cloud = "*"
 google-cloud-storage = "*"
 pre-commit = "*"
+black = "*"
 
 [dev-packages]
 ipykernel = "*"
