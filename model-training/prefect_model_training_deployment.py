@@ -1,6 +1,6 @@
 import model_training_pipeline
 from prefect.deployments import Deployment
-from prefect.orion.schemas.schedules import CronSchedule
+from prefect.server.schemas.schedules import CronSchedule
 from prefect.filesystems import GCS
 from prefect_gcp import GcsBucket
 
